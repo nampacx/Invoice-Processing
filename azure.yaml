@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: invoice-processing
+metadata:
+  template: invoice-processing@0.1.0
+services:
+  api:
+    project: ./src/InvoiceProcessing.Functions
+    language: csharp
+    host: function

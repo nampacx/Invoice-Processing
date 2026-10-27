@@ -48,6 +48,19 @@ Copy `src/InvoiceProcessing.Functions/local.settings.sample.json` to `local.sett
 Auth is `DefaultAzureCredential` (managed identity in Azure). Grant the function's identity:
 `Cognitive Services OpenAI User` (Foundry), `Cognitive Services User` (Document Intelligence), `Storage Blob Data Owner`, `Storage Queue Data Contributor`, `Storage Table Data Contributor` (storage).
 
+## Deploy with azd
+Infrastructure is in `infra/` (Bicep, subscription scope) and wired up through `azure.yaml`.
+
+```bash
+azd auth login
+azd up          # provisions + deploys; prompts for env name, region, modelName and modelVersion
+```
+- **modelName / modelVersion**: the model to deploy in Foundry, exactly as listed in the Foundry model catalog for your region. The deployment name defaults to the model name; override with `azd env set` + `modelDeploymentName` in `infra/main.parameters.json` if you prefer another name. If the model isn't offered in your primary region, set `aiLocation`.
+- **Resources**: Log Analytics + Application Insights, one storage account (`invoices` container, `Invoices` table, host storage), one Foundry `AIServices` account (model deployment + Document Intelligence, Entra-only), a Linux App Service plan (B1) and the function app. The function app's system-assigned identity gets all required roles; so do you (blob + table access), so you can upload and inspect.
+- **Why not Flex Consumption?** It only supports Event Grid blob triggers (needs an event subscription and a function key after deploy). The polling trigger used here needs a dedicated/Premium plan with Always On; change `functionPlanSku` (e.g. `EP1`) if you want more scale.
+- Try it: `az storage blob upload --auth-mode login --account-name $(azd env get-value AZURE_STORAGE_ACCOUNT) -c invoices -f invoice.pdf` then watch Application Insights. The polling trigger can take a few minutes to notice the blob.
+- Clean up: `azd down --purge`.
+
 ## Run locally
 ```bash
 azurite &                                # blob/queue/table emulator
