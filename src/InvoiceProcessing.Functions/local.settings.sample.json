@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "InvoiceStorage": "UseDevelopmentStorage=true",
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
+    "Invoice__DocumentIntelligenceEndpoint": "https://<your-docintel>.cognitiveservices.azure.com/",
+    "Invoice__OpenAIEndpoint": "https://<your-foundry-resource>.openai.azure.com/",
+    "Invoice__ModelDeployment": "<your-luna-deployment-name>",
+    "Invoice__TableName": "Invoices"
+  }
+}

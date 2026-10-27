@@ -1,0 +1,14 @@
+{
+  "version": "2.0",
+  "logging": {
+    "logLevel": {
+      "default": "Information",
+      "Host.Results": "Information",
+      "Function": "Information",
+      "InvoiceProcessing": "Information"
+    }
+  },
+  "extensions": {
+    "blobs": { "maxDegreeOfParallelism": 2 }
+  }
+}
