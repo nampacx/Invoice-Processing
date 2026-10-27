@@ -16,7 +16,7 @@ public sealed class InvoiceFileCache
     public void Put(string blobName, BinaryData content, string contentType)
     {
         Evict();
-        _files[blobName] = new LoadedFile(content, contentType, DateTimeOffset.UtcNow) { };
+        _files[blobName] = new LoadedFile(content, contentType, DateTimeOffset.UtcNow);
     }
 
     public LoadedFile? Get(string blobName) => _files.TryGetValue(blobName, out var f) && !f.IsExpired ? f : null;

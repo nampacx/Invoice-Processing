@@ -45,7 +45,12 @@ public static class InvoiceAgentFactory
         // endpoint, role "Cognitive Services OpenAI User" granted to this agent by the postdeploy hook.
         // Responses API (not chat completions): reasoning models reject function tools combined with reasoning_effort there.
 #pragma warning disable OPENAI001
-        var options = new OpenAIClientOptions { Endpoint = new Uri(settings.OpenAIEndpoint, "openai/v1/") };
+        // Reasoning models can think for longer than the default 100 s network timeout.
+        var options = new OpenAIClientOptions
+        {
+            Endpoint = new Uri(settings.OpenAIEndpoint, "openai/v1/"),
+            NetworkTimeout = TimeSpan.FromMinutes(5),
+        };
         var tokenPolicy = new BearerTokenPolicy(credential, "https://cognitiveservices.azure.com/.default");
         IChatClient chatClient = new OpenAIClient(tokenPolicy, options)
             .GetResponsesClient()

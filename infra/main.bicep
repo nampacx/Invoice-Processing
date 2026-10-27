@@ -33,8 +33,14 @@ param modelCapacity int = 50
 @allowed(['GlobalStandard', 'Standard', 'DataZoneStandard'])
 param modelSku string = 'GlobalStandard'
 
-@description('App Service plan SKU (Linux). The function uses the Event Grid blob trigger.')
-param functionPlanSku string = 'B1'
+@description('Memory per function instance (Flex Consumption).')
+@allowed([512, 2048, 4096])
+param functionInstanceMemoryMB int = 2048
+
+@description('Upper bound for the function scale-out (Flex Consumption). It scales to zero when idle.')
+@minValue(40)
+@maxValue(1000)
+param functionMaximumInstanceCount int = 40
 
 var tags = { 'azd-env-name': environmentName }
 
@@ -58,7 +64,8 @@ module resources 'resources.bicep' = {
     modelDeploymentName: modelDeploymentName
     modelCapacity: modelCapacity
     modelSku: modelSku
-    functionPlanSku: functionPlanSku
+    functionInstanceMemoryMB: functionInstanceMemoryMB
+    functionMaximumInstanceCount: functionMaximumInstanceCount
     agentName: agentName
   }
 }
