@@ -8,7 +8,7 @@ namespace InvoiceProcessing.Storage;
 /// <summary>
 /// Writes one invoice into a single table. All rows of an invoice share the partition key (the source
 /// blob name), so header and line items are written in one atomic batch. Re-processing the same blob
-/// overwrites the previous result (upsert).
+/// replaces the previous result: rows are upserted and line rows the new result no longer has are deleted.
 /// <list type="bullet">
 /// <item>RowKey "Invoice": transaction + vendor data</item>
 /// <item>RowKey "Line-0001", "Line-0002", ...: line items</item>
@@ -20,8 +20,7 @@ public sealed class InvoiceTableWriter(TableClient table, ILogger<InvoiceTableWr
 
     public async Task SaveAsync(string blobName, InvoiceExtraction invoice, CancellationToken ct)
     {
-        await table.CreateIfNotExistsAsync(ct);
-
+        // The table itself is created by infra/; the agent only has data access to it.
         var partitionKey = ToKey(blobName);
         var t = invoice.Transaction;
         var v = invoice.Vendor;
@@ -66,11 +65,19 @@ public sealed class InvoiceTableWriter(TableClient table, ILogger<InvoiceTableWr
             });
         }
 
-        foreach (var chunk in rows.Chunk(MaxBatch))
+        var actions = rows.Select(e => new TableTransactionAction(TableTransactionActionType.UpsertReplace, e)).ToList();
+
+        // A previous run of the same blob may have produced more line items: remove the leftovers.
+        var keep = rows.Select(e => e.RowKey).ToHashSet();
+        var filter = TableClient.CreateQueryFilter($"PartitionKey eq {partitionKey}");
+        await foreach (var old in table.QueryAsync<TableEntity>(filter, select: ["RowKey"], cancellationToken: ct))
         {
-            var actions = chunk.Select(e => new TableTransactionAction(TableTransactionActionType.UpsertReplace, e));
-            await table.SubmitTransactionAsync(actions, ct);
+            if (!keep.Contains(old.RowKey))
+                actions.Add(new TableTransactionAction(TableTransactionActionType.Delete, old, ETag.All));
         }
+
+        foreach (var chunk in actions.Chunk(MaxBatch))
+            await table.SubmitTransactionAsync(chunk, ct);
 
         logger.LogInformation("Saved invoice {Blob} to table {Table}: 1 header + {Lines} line rows (partition {Partition})",
             blobName, table.Name, invoice.LineItems.Count, partitionKey);

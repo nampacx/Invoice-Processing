@@ -43,6 +43,7 @@ function Grant([string]$Principal, [string]$Role, [string]$Scope, [string]$Label
     } else {
         az role assignment create --assignee-object-id $Principal --assignee-principal-type ServicePrincipal `
             --role $Role --scope $Scope --only-show-errors -o none
+        if ($LASTEXITCODE -ne 0) { Write-Error "grant-agent-access: could not assign $Label." }
         Write-Host "  + $Label"
     }
 }

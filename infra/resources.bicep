@@ -8,12 +8,14 @@ param modelVersion string
 param modelDeploymentName string
 param modelCapacity int
 param modelSku string
-param functionPlanSku string
+param functionInstanceMemoryMB int
+param functionMaximumInstanceCount int
 param agentName string
 
 var token = toLower(uniqueString(subscription().id, environmentName, location))
 var invoiceContainerName = 'invoices'
 var invoiceTableName = 'Invoices'
+var deploymentContainerName = 'app-package'
 
 // Built-in role definitions (Foundry roles by ID: they were renamed recently).
 var roles = {
@@ -50,7 +52,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 // ------------------------------------------------------------------- Storage
-// One account: function host storage, the invoice upload container and the result table.
+// One account: function host storage, the function's deployment package, the invoice upload container and the result table.
 // Shared-key access is off; everything uses Microsoft Entra / managed identity.
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'st${token}'
@@ -61,6 +63,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   properties: {
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true // shared keys are off, so the portal must use Entra too
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
   }
@@ -69,6 +72,10 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     name: 'default'
     resource invoices 'containers' = {
       name: invoiceContainerName
+    }
+    // Flex Consumption runs the function from the zip package azd uploads here.
+    resource deployment 'containers' = {
+      name: deploymentContainerName
     }
   }
 
@@ -145,12 +152,17 @@ resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/projects/co
 }
 
 // ------------------------------------------------------------ Function app
+// Flex Consumption scales to zero: no instance (and no bill) while no invoices arrive.
+// Event Grid pushes blob events to the webhook, which wakes the app up on demand.
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: 'plan-${token}'
   location: location
   tags: tags
-  kind: 'linux'
-  sku: { name: functionPlanSku }
+  kind: 'functionapp'
+  sku: {
+    name: 'FC1'
+    tier: 'FlexConsumption'
+  }
   properties: { reserved: true }
 }
 
@@ -164,14 +176,29 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   properties: {
     serverFarmId: plan.id
     httpsOnly: true
+    functionAppConfig: {
+      deployment: {
+        storage: {
+          type: 'blobContainer'
+          value: '${storage.properties.primaryEndpoints.blob}${deploymentContainerName}'
+          authentication: { type: 'SystemAssignedIdentity' }
+        }
+      }
+      scaleAndConcurrency: {
+        instanceMemoryMB: functionInstanceMemoryMB
+        maximumInstanceCount: functionMaximumInstanceCount
+      }
+      runtime: {
+        name: 'dotnet-isolated'
+        version: '10.0'
+      }
+    }
     siteConfig: {
-      linuxFxVersion: 'DOTNET-ISOLATED|10.0'
-      alwaysOn: true // keeps the host warm so the Event Grid webhook answers without a cold start
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
+      // Runtime and version live in functionAppConfig: Flex Consumption rejects
+      // FUNCTIONS_WORKER_RUNTIME / FUNCTIONS_EXTENSION_VERSION app settings.
       appSettings: [
-        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
-        { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
         // Identity-based host storage
         { name: 'AzureWebJobsStorage__accountName', value: storage.name }
         // Identity-based "InvoiceStorage" connection used by the blob trigger
@@ -190,7 +217,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
 // Blob events for the Event Grid blob trigger. Storage publishes them by itself (no keys or roles needed).
 // The subscription targets the deployed function's webhook, so the api postdeploy hook
 // (hooks/subscribe-blob-events) creates it.
-resource storageEvents 'Microsoft.EventGrid/systemTopics@2024-06-01-preview' = {
+resource storageEvents 'Microsoft.EventGrid/systemTopics@2025-02-15' = {
   name: 'evgt-${token}'
   location: location
   tags: tags
@@ -201,7 +228,8 @@ resource storageEvents 'Microsoft.EventGrid/systemTopics@2024-06-01-preview' = {
 }
 
 // ---------------------------------------------------------------------- RBAC
-// The function only triggers: it needs its trigger storage and to publish telemetry.
+// The function only triggers: it needs its trigger storage (Blob Data Owner also covers reading its
+// deployment package) and to publish telemetry.
 // Everything else is scoped to the AGENT, not the project, and is granted by the azd postdeploy hook
 // because the agent (and its identity) only exist after `azd deploy`:
 //   - the agent's own identity: blob read, table write, Document Intelligence, model calls

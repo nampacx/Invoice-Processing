@@ -2,7 +2,7 @@ using System.ComponentModel;
 
 namespace InvoiceProcessing.Models;
 
-/// <summary>Structured result the agent must return. Also used as the JSON schema for structured output.</summary>
+/// <summary>The extracted invoice. Its shape is the JSON schema of the <c>invoice</c> argument of save_invoice.</summary>
 public sealed class InvoiceExtraction
 {
     [Description("Invoice-level transaction data.")]

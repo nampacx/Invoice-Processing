@@ -40,7 +40,7 @@ The model works out the parts that aren't a simple field lookup: who actually *i
 Models sometimes announce "all done!" without having done it. So the agent host checks the receipts: a run only counts as successful if `save_invoice` actually returned `SAVED`. Otherwise the run fails, the function sees the failure, throws, and the blob trigger retries the file. The model cannot talk its way out of it.
 
 ### Results land in one table
-One partition per uploaded file: a row called `Invoice` (transaction and vendor) and rows `Line-0001`, `Line-0002`, … for the items. Upload the same file again and it overwrites the old result.
+One partition per uploaded file: a row called `Invoice` (transaction and vendor) and rows `Line-0001`, `Line-0002`, … for the items. Upload the same file again and it replaces the old result, leftover line rows included.
 
 ### You can watch the agent think
 Application Insights gets the blob arriving, every tool call (with how long it took), how much JSON the clean-up removed, the tool trail of each run, and failures. Prompts and invoice contents are *not* logged, because invoices are private. Handy query to get started:
@@ -53,9 +53,9 @@ traces | where message has "Agent" or message has "tool" | order by timestamp as
 
 | Resource | What it does |
 |---|---|
-| **Storage account** | Upload container, result table, and the function's own housekeeping. One account, three jobs. |
+| **Storage account** | Upload container, result table, the function's deployment package and its housekeeping. One account, four jobs. |
 | **Foundry resource + project** | Hosts the model deployment, Document Intelligence, **and the agent itself**. |
-| **Function app** (+ plan) | The trigger. |
+| **Function app** (Flex Consumption plan) | The trigger. Scales to zero between invoices. |
 | **Event Grid system topic** | Carries the storage account's "blob created" events to the function. |
 | **Application Insights** (+ Log Analytics) | The "what on earth is the agent doing" window. |
 
@@ -149,7 +149,9 @@ Covers the clean-up step, the tool guards (path tricks, wrong call order) and th
 ## Limitations (a.k.a. things this demo is honest about)
 
 - **Only new uploads count.** The trigger reacts to "blob created" events, so files that were already in the container before the subscription existed are ignored. Upload them again if you want them processed.
-- **It costs money while it sleeps.** The function runs on an always-on plan (B1 by default), so it is billed 24/7 like a lamp someone forgot to switch off. The Event Grid trigger would also run on scale-to-zero Flex Consumption, but that's a change for another day. The hosted agent itself only bills while it works. Run `azd down` when you're done playing.
+- **It sleeps for free (mostly).** The function runs on Flex Consumption and scales to zero: no invoices, no instances, no compute bill. Event Grid knocks on its webhook when a blob lands and the app wakes up. The hosted agent also only bills while it works. Storage, Log Analytics and the model deployment still cost a little, so run `azd down` when you're done playing.
+- **Two cold starts in a row.** After a quiet spell the first invoice wakes the function *and* the agent. Event Grid retries patiently, so nothing gets lost; it just takes a few extra seconds.
+- **Upgrading an older deployment?** An app on the old B1 plan can't be switched to Flex Consumption in place. Run `azd down` once, then `azd up`.
 - **The agent wakes up slowly.** Hosted agents scale to zero when idle, so the first invoice after a quiet spell pays a cold start. It's not hot coffee; it's more "the barista just arrived".
 - **Permissions take their sweet time.** Fresh role assignments can need a few minutes to kick in. If the very first invoice fails with a permissions error, make a tea and let the retry do its thing.
 - **The agent's identity is a late bloomer.** It exists only after the agent is deployed, which is why a script, not Bicep, hands out its permissions. Yes, that is a bit awkward. No, there isn't a neater way yet.

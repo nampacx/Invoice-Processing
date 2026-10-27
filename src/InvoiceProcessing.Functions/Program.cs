@@ -34,14 +34,15 @@ if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_
 }
 builder.Logging.AddFilter("InvoiceProcessing", LogLevel.Information);
 
-// Client bound to the hosted agent's own endpoint.
+// Client bound to the hosted agent's own endpoint. One call covers a whole agent run (possibly a cold
+// start, Document Intelligence and several model turns), so the default 100 s network timeout is too short.
 #pragma warning disable OPENAI001
 builder.Services.AddSingleton(sp =>
 {
     var o = sp.GetRequiredService<IOptions<InvoiceOptions>>().Value;
     return new AIProjectClient(new Uri(o.FoundryProjectEndpoint), credential)
         .ProjectOpenAIClient
-        .GetProjectResponsesClientForAgentEndpoint(o.AgentName);
+        .GetProjectResponsesClientForAgentEndpoint(o.AgentName, options: new ProjectOpenAIClientOptions { NetworkTimeout = TimeSpan.FromMinutes(10) });
 });
 
 builder.Build().Run();

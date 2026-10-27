@@ -85,15 +85,15 @@ public sealed class InvoiceTools(
         logger.LogInformation("Document Intelligence: analyzing {Blob} with prebuilt-invoice", blobName);
 
         var operation = await documentIntelligence.AnalyzeDocumentAsync(WaitUntil.Completed, "prebuilt-invoice", file.Content, cancellationToken: ct);
-        var raw = JsonNode.Parse(ModelReaderWriter.Write(operation.Value, ModelReaderWriterOptions.Json))!;
-        var rawLength = raw.ToJsonString().Length;
+        var rawJson = ModelReaderWriter.Write(operation.Value, ModelReaderWriterOptions.Json);
+        var raw = JsonNode.Parse(rawJson)!;
 
         var reduced = InvoiceJsonReducer.Reduce(raw).ToJsonString();
         file.ReducedJson = reduced;
 
         logger.LogInformation(
-            "Document Intelligence finished in {ElapsedMs} ms: raw JSON {RawChars} chars -> reduced {ReducedChars} chars",
-            sw.ElapsedMilliseconds, rawLength, reduced.Length);
+            "Document Intelligence finished in {ElapsedMs} ms: raw JSON {RawBytes} bytes -> reduced {ReducedChars} chars",
+            sw.ElapsedMilliseconds, rawJson.ToMemory().Length, reduced.Length);
         return reduced;
     }
 
