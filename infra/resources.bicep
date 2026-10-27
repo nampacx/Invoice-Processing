@@ -18,7 +18,7 @@ var invoiceTableName = 'Invoices'
 // Built-in role definitions (Foundry roles by ID: they were renamed recently).
 var roles = {
   storageBlobDataOwner: 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
-  storageBlobDataContributor: 'ba92f5b4-2d11-4d4b-8d4f-9cd2cef4b8a1'
+  storageBlobDataContributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
   storageQueueDataContributor: '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
   storageTableDataReader: '76199698-9eea-4c19-bc75-cec21354c6b6'
   monitoringMetricsPublisher: '3913510d-42f4-4e42-8a64-420c390055eb'
@@ -166,7 +166,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'DOTNET-ISOLATED|10.0'
-      alwaysOn: true // required for the polling blob trigger to keep scanning
+      alwaysOn: true // keeps the host warm so the Event Grid webhook answers without a cold start
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       appSettings: [
@@ -184,6 +184,19 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'Authorization=AAD' }
       ]
     }
+  }
+}
+
+// Blob events for the Event Grid blob trigger. Storage publishes them by itself (no keys or roles needed).
+// The subscription targets the deployed function's webhook, so the api postdeploy hook
+// (hooks/subscribe-blob-events) creates it.
+resource storageEvents 'Microsoft.EventGrid/systemTopics@2024-06-01-preview' = {
+  name: 'evgt-${token}'
+  location: location
+  tags: tags
+  properties: {
+    source: storage.id
+    topicType: 'Microsoft.Storage.StorageAccounts'
   }
 }
 
@@ -252,6 +265,7 @@ resource userTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if
 }
 
 output functionAppName string = functionApp.name
+output storageEventsTopicName string = storageEvents.name
 output functionPrincipalId string = functionApp.identity.principalId
 output storageAccountName string = storage.name
 output storageAccountId string = storage.id
@@ -263,4 +277,5 @@ output aiAccountId string = ai.id
 output documentIntelligenceEndpoint string = ai.properties.endpoint
 output openAIEndpoint string = 'https://${ai.name}.openai.azure.com/'
 output foundryProjectName string = project.name
+output foundryProjectId string = project.id
 output foundryProjectEndpoint string = 'https://${ai.name}.services.ai.azure.com/api/projects/${project.name}'

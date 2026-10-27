@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
-using Azure.AI.OpenAI;
+using System.ClientModel.Primitives;
+using OpenAI;
 using Azure.Core;
 using InvoiceProcessing.Tools;
 using Microsoft.Agents.AI;
@@ -42,9 +43,14 @@ public static class InvoiceAgentFactory
     {
         // The model is called with the agent's own identity (not the project's): the account's OpenAI
         // endpoint, role "Cognitive Services OpenAI User" granted to this agent by the postdeploy hook.
-        IChatClient chatClient = new AzureOpenAIClient(settings.OpenAIEndpoint, credential)
-            .GetChatClient(settings.ModelDeployment)
-            .AsIChatClient();
+        // Responses API (not chat completions): reasoning models reject function tools combined with reasoning_effort there.
+#pragma warning disable OPENAI001
+        var options = new OpenAIClientOptions { Endpoint = new Uri(settings.OpenAIEndpoint, "openai/v1/") };
+        var tokenPolicy = new BearerTokenPolicy(credential, "https://cognitiveservices.azure.com/.default");
+        IChatClient chatClient = new OpenAIClient(tokenPolicy, options)
+            .GetResponsesClient()
+            .AsIChatClient(settings.ModelDeployment);
+#pragma warning restore OPENAI001
 
         AIAgent agent = new ChatClientAgent(chatClient, instructions: Instructions, name: AgentName, tools: tools.CreateTools());
 

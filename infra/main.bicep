@@ -33,7 +33,7 @@ param modelCapacity int = 50
 @allowed(['GlobalStandard', 'Standard', 'DataZoneStandard'])
 param modelSku string = 'GlobalStandard'
 
-@description('App Service plan SKU. The polling blob trigger needs a dedicated or Elastic Premium plan (Flex Consumption only supports Event Grid blob triggers).')
+@description('App Service plan SKU (Linux). The function uses the Event Grid blob trigger.')
 param functionPlanSku string = 'B1'
 
 var tags = { 'azd-env-name': environmentName }
@@ -67,12 +67,15 @@ module resources 'resources.bicep' = {
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_FUNCTION_APP_NAME string = resources.outputs.functionAppName
+output AZURE_EVENTGRID_SYSTEM_TOPIC string = resources.outputs.storageEventsTopicName
 output AZURE_STORAGE_ACCOUNT string = resources.outputs.storageAccountName
 output AZURE_STORAGE_ACCOUNT_ID string = resources.outputs.storageAccountId
 output AZURE_FUNCTION_PRINCIPAL_ID string = resources.outputs.functionPrincipalId
 output AZURE_OPENAI_ENDPOINT string = resources.outputs.openAIEndpoint
 output AZURE_AI_ACCOUNT_ID string = resources.outputs.aiAccountId
 output AZURE_AI_PROJECT_ENDPOINT string = resources.outputs.foundryProjectEndpoint
+output FOUNDRY_PROJECT_ENDPOINT string = resources.outputs.foundryProjectEndpoint
+output AZURE_AI_PROJECT_ID string = resources.outputs.foundryProjectId
 output AZURE_FOUNDRY_PROJECT string = resources.outputs.foundryProjectName
 output AZURE_AI_MODEL_DEPLOYMENT_NAME string = modelDeploymentName
 output STORAGE_BLOB_ENDPOINT string = resources.outputs.blobEndpoint

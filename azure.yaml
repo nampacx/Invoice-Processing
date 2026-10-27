@@ -20,6 +20,15 @@ services:
     project: ./src/InvoiceProcessing.Functions
     language: csharp
     host: function
+    hooks:
+      # The Event Grid subscription targets the deployed function's webhook, so it is created here.
+      postdeploy:
+        posix:
+          shell: bash
+          run: ../../hooks/subscribe-blob-events.sh
+        windows:
+          shell: pwsh
+          run: ../../hooks/subscribe-blob-events.ps1
 
   # 2) The existing Foundry project created by infra/ (azd must not create a second one).
   ai-project:
@@ -61,7 +70,7 @@ services:
       postdeploy:
         posix:
           shell: bash
-          run: ./hooks/grant-agent-access.sh
+          run: ../../hooks/grant-agent-access.sh
         windows:
           shell: pwsh
-          run: ./hooks/grant-agent-access.ps1
+          run: ../../hooks/grant-agent-access.ps1

@@ -16,7 +16,9 @@ public sealed class ProcessInvoiceFunction(ProjectResponsesClient agent, ILogger
     [Function(nameof(ProcessInvoice))]
     public async Task ProcessInvoice(
         // BlobClient = just a reference; the function never downloads the invoice.
-        [BlobTrigger("invoices/{name}", Connection = "InvoiceStorage")] BlobClient blob,
+        // Event Grid source: Storage pushes a BlobCreated event to this function's webhook (no container polling).
+        // The subscription is created by the api postdeploy hook (hooks/subscribe-blob-events).
+        [BlobTrigger("invoices/{name}", Source = BlobTriggerSource.EventGrid, Connection = "InvoiceStorage")] BlobClient blob,
         string name,
         FunctionContext context)
     {
