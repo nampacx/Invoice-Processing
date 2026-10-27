@@ -5,15 +5,9 @@ public sealed class InvoiceOptions
 {
     public const string SectionName = "Invoice";
 
-    /// <summary>Azure AI Document Intelligence endpoint.</summary>
-    public string DocumentIntelligenceEndpoint { get; set; } = "";
+    /// <summary>Endpoint of the Foundry project that hosts the agent (https://&lt;account&gt;.services.ai.azure.com/api/projects/&lt;project&gt;).</summary>
+    public string FoundryProjectEndpoint { get; set; } = "";
 
-    /// <summary>Azure AI Foundry / Azure OpenAI endpoint hosting the model.</summary>
-    public string OpenAIEndpoint { get; set; } = "";
-
-    /// <summary>Name of the model deployment in Foundry (e.g. the gpt-6-luna deployment).</summary>
-    public string ModelDeployment { get; set; } = "";
-
-    /// <summary>Table that receives the results.</summary>
-    public string TableName { get; set; } = "Invoices";
+    /// <summary>Name of the hosted agent to call.</summary>
+    public string AgentName { get; set; } = "invoice-extractor";
 }

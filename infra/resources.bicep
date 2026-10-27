@@ -9,20 +9,20 @@ param modelDeploymentName string
 param modelCapacity int
 param modelSku string
 param functionPlanSku string
+param agentName string
 
 var token = toLower(uniqueString(subscription().id, environmentName, location))
 var invoiceContainerName = 'invoices'
 var invoiceTableName = 'Invoices'
 
-// Built-in role definitions
+// Built-in role definitions (Foundry roles by ID: they were renamed recently).
 var roles = {
   storageBlobDataOwner: 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
   storageBlobDataContributor: 'ba92f5b4-2d11-4d4b-8d4f-9cd2cef4b8a1'
   storageQueueDataContributor: '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
-  storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
-  cognitiveServicesOpenAIUser: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
-  cognitiveServicesUser: 'a97b65f3-24c7-4388-baec-2e87135dc908'
+  storageTableDataReader: '76199698-9eea-4c19-bc75-cec21354c6b6'
   monitoringMetricsPublisher: '3913510d-42f4-4e42-8a64-420c390055eb'
+  foundryProjectManager: 'eadc314b-1a2d-4efa-be10-5d325db5065e'
 }
 
 // ---------------------------------------------------------------- Monitoring
@@ -36,6 +36,8 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
+// The function sends telemetry with its managed identity; the Foundry project connection below
+// (used by the hosted agent) authenticates with the connection string, so key ingestion stays enabled.
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: 'appi-${token}'
   location: location
@@ -44,7 +46,6 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: logs.id
-    DisableLocalAuth: true // telemetry must be sent with Entra ID (managed identity)
   }
 }
 
@@ -80,32 +81,19 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
 }
 
 // ------------------------------------------- Foundry (model + Document Intelligence)
-// An AIServices account serves both the model deployment (Azure OpenAI API) and Document Intelligence.
+// An AIServices account serves both the model deployment and Document Intelligence.
 resource ai 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: 'ai-${token}'
   location: aiLocation
   tags: tags
   kind: 'AIServices'
   sku: { name: 'S0' }
+  identity: { type: 'SystemAssigned' }
   properties: {
     customSubDomainName: 'ai-${token}'
     publicNetworkAccess: 'Enabled'
     disableLocalAuth: true
     allowProjectManagement: true
-  }
-  identity: { type: 'SystemAssigned' }
-}
-
-// Foundry project: gives the model deployment and Document Intelligence a home in the Foundry portal.
-resource project 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
-  parent: ai
-  name: 'invoice-processing'
-  location: aiLocation
-  tags: tags
-  identity: { type: 'SystemAssigned' }
-  properties: {
-    displayName: 'Invoice Processing'
-    description: 'Invoice extraction agent'
   }
 }
 
@@ -121,6 +109,37 @@ resource model 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
       format: 'OpenAI'
       name: modelName
       version: modelVersion
+    }
+  }
+}
+
+// The Foundry project hosts the invoice agent (deployed later by `azd deploy`).
+resource project 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
+  parent: ai
+  name: 'invoice-processing'
+  location: aiLocation
+  tags: tags
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    displayName: 'Invoice Processing'
+    description: 'Invoice extraction agent'
+  }
+  dependsOn: [model]
+}
+
+// Lets the platform emit the hosted agent's telemetry to our Application Insights.
+resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01' = {
+  parent: project
+  name: 'appinsights'
+  properties: {
+    category: 'AppInsights'
+    target: appInsights.id
+    authType: 'ApiKey'
+    isSharedToAll: true
+    credentials: { key: appInsights.properties.ConnectionString }
+    metadata: {
+      ApiType: 'Azure'
+      ResourceId: appInsights.id
     }
   }
 }
@@ -155,15 +174,12 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
         // Identity-based host storage
         { name: 'AzureWebJobsStorage__accountName', value: storage.name }
-        // Identity-based "InvoiceStorage" connection used by the blob trigger and the table writer
+        // Identity-based "InvoiceStorage" connection used by the blob trigger
         { name: 'InvoiceStorage__blobServiceUri', value: storage.properties.primaryEndpoints.blob }
         { name: 'InvoiceStorage__queueServiceUri', value: storage.properties.primaryEndpoints.queue }
-        { name: 'InvoiceStorage__tableServiceUri', value: storage.properties.primaryEndpoints.table }
-        // App configuration (bound to InvoiceOptions)
-        { name: 'Invoice__OpenAIEndpoint', value: 'https://${ai.name}.openai.azure.com/' }
-        { name: 'Invoice__DocumentIntelligenceEndpoint', value: ai.properties.endpoint }
-        { name: 'Invoice__ModelDeployment', value: model.name }
-        { name: 'Invoice__TableName', value: invoiceTableName }
+        // Where the hosted agent lives (bound to InvoiceOptions)
+        { name: 'Invoice__FoundryProjectEndpoint', value: 'https://${ai.name}.services.ai.azure.com/api/projects/${project.name}' }
+        { name: 'Invoice__AgentName', value: agentName }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
         { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'Authorization=AAD' }
       ]
@@ -172,10 +188,14 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
 }
 
 // ---------------------------------------------------------------------- RBAC
+// The function only triggers: it needs its trigger storage and to publish telemetry.
+// Everything else is scoped to the AGENT, not the project, and is granted by the azd postdeploy hook
+// because the agent (and its identity) only exist after `azd deploy`:
+//   - the agent's own identity: blob read, table write, Document Intelligence, model calls
+//   - this function's right to call that one agent (Foundry Agent Consumer at agent scope)
 var functionStorageRoleIds = [
   roles.storageBlobDataOwner
   roles.storageQueueDataContributor
-  roles.storageTableDataContributor
 ]
 
 resource functionStorageRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
@@ -190,26 +210,6 @@ resource functionStorageRoles 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 ]
 
-resource functionOpenAIRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(ai.id, functionApp.id, roles.cognitiveServicesOpenAIUser)
-  scope: ai
-  properties: {
-    principalId: functionApp.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.cognitiveServicesOpenAIUser)
-  }
-}
-
-resource functionDocIntelRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(ai.id, functionApp.id, roles.cognitiveServicesUser)
-  scope: ai
-  properties: {
-    principalId: functionApp.identity.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.cognitiveServicesUser)
-  }
-}
-
 resource functionMetricsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(appInsights.id, functionApp.id, roles.monitoringMetricsPublisher)
   scope: appInsights
@@ -220,7 +220,17 @@ resource functionMetricsRole 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
-// Deploying user: upload invoices and inspect the table.
+// Deploying user: deploy and call the agent, upload invoices, read the result table.
+resource userProjectManagerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
+  name: guid(project.id, principalId, roles.foundryProjectManager)
+  scope: project
+  properties: {
+    principalId: principalId
+    principalType: 'User'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.foundryProjectManager)
+  }
+}
+
 resource userBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
   name: guid(storage.id, principalId, roles.storageBlobDataContributor)
   scope: storage
@@ -232,18 +242,25 @@ resource userBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if 
 }
 
 resource userTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
-  name: guid(storage.id, principalId, roles.storageTableDataContributor)
+  name: guid(storage.id, principalId, roles.storageTableDataReader)
   scope: storage
   properties: {
     principalId: principalId
     principalType: 'User'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.storageTableDataContributor)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.storageTableDataReader)
   }
 }
 
 output functionAppName string = functionApp.name
+output functionPrincipalId string = functionApp.identity.principalId
 output storageAccountName string = storage.name
+output storageAccountId string = storage.id
+output blobEndpoint string = storage.properties.primaryEndpoints.blob
+output tableEndpoint string = storage.properties.primaryEndpoints.table
 output invoiceContainer string = invoiceContainerName
 output invoiceTable string = invoiceTableName
-output aiEndpoint string = ai.properties.endpoint
+output aiAccountId string = ai.id
+output documentIntelligenceEndpoint string = ai.properties.endpoint
+output openAIEndpoint string = 'https://${ai.name}.openai.azure.com/'
 output foundryProjectName string = project.name
+output foundryProjectEndpoint string = 'https://${ai.name}.services.ai.azure.com/api/projects/${project.name}'

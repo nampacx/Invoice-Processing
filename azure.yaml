@@ -1,9 +1,67 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
 name: invoice-processing
 metadata:
-  template: invoice-processing@0.1.0
+  template: invoice-processing@0.2.0
+
+# Needs the Foundry extensions for the hosted agent:  azd ext install microsoft.foundry
+requiredVersions:
+  extensions:
+    azure.ai.agents: ">=1.0.0-beta.8"
+    azure.ai.projects: ">=1.0.0-beta.4"
+
+# Our own Bicep (infra/) creates the Foundry project, storage, function app, ...
+infra:
+  provider: bicep
+  path: ./infra
+
 services:
+  # 1) The blob-triggered function: just wakes the agent up.
   api:
     project: ./src/InvoiceProcessing.Functions
     language: csharp
     host: function
+
+  # 2) The existing Foundry project created by infra/ (azd must not create a second one).
+  ai-project:
+    host: azure.ai.project
+    endpoint: ${AZURE_AI_PROJECT_ENDPOINT}
+
+  # 3) The hosted agent, deployed from source (Foundry builds it: no Docker, no container registry).
+  agent:
+    project: ./src/InvoiceProcessing.Agent
+    host: azure.ai.agent
+    language: csharp
+    uses:
+      - ai-project
+    kind: hosted
+    name: invoice-extractor # must match infra `agentName`
+    description: Reads an invoice from blob storage, extracts the data and saves it to Table Storage.
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    codeConfiguration:
+      runtime: dotnet_10
+      entryPoint: InvoiceProcessing.Agent.dll
+      dependencyResolution: remote_build
+    container:
+      resources:
+        cpu: "0.5"
+        memory: 1Gi
+    env:
+      ASPNETCORE_URLS: http://+:8088
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      STORAGE_BLOB_ENDPOINT: ${STORAGE_BLOB_ENDPOINT}
+      STORAGE_TABLE_ENDPOINT: ${STORAGE_TABLE_ENDPOINT}
+      DOCUMENT_INTELLIGENCE_ENDPOINT: ${DOCUMENT_INTELLIGENCE_ENDPOINT}
+      INVOICE_CONTAINER: ${INVOICE_CONTAINER}
+      INVOICE_TABLE: ${INVOICE_TABLE}
+    hooks:
+      # The agent's identity (and agent scope) only exist once the agent is deployed, so access is granted here.
+      postdeploy:
+        posix:
+          shell: bash
+          run: ./hooks/grant-agent-access.sh
+        windows:
+          shell: pwsh
+          run: ./hooks/grant-agent-access.ps1

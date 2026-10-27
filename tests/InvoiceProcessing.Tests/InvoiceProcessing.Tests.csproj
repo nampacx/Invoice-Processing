@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\InvoiceProcessing.Functions\InvoiceProcessing.Functions.csproj" />
+    <ProjectReference Include="..\..\src\InvoiceProcessing.Agent\InvoiceProcessing.Agent.csproj" />
   </ItemGroup>
 
 </Project>

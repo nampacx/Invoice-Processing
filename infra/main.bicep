@@ -24,6 +24,9 @@ param modelVersion string
 @description('Name of the model deployment the app calls. Defaults to the model name.')
 param modelDeploymentName string = modelName
 
+@description('Name of the hosted agent (must match the agent service name in azure.yaml).')
+param agentName string = 'invoice-extractor'
+
 @description('Capacity of the model deployment (thousands of tokens per minute for Standard SKUs).')
 param modelCapacity int = 50
 
@@ -56,16 +59,25 @@ module resources 'resources.bicep' = {
     modelCapacity: modelCapacity
     modelSku: modelSku
     functionPlanSku: functionPlanSku
+    agentName: agentName
   }
 }
 
-// Consumed by azd (and handy for `azd env get-values`).
+// Consumed by azd: these become azd environment values, used by azure.yaml (agent env) and the postdeploy hook.
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_FUNCTION_APP_NAME string = resources.outputs.functionAppName
 output AZURE_STORAGE_ACCOUNT string = resources.outputs.storageAccountName
+output AZURE_STORAGE_ACCOUNT_ID string = resources.outputs.storageAccountId
+output AZURE_FUNCTION_PRINCIPAL_ID string = resources.outputs.functionPrincipalId
+output AZURE_OPENAI_ENDPOINT string = resources.outputs.openAIEndpoint
+output AZURE_AI_ACCOUNT_ID string = resources.outputs.aiAccountId
+output AZURE_AI_PROJECT_ENDPOINT string = resources.outputs.foundryProjectEndpoint
+output AZURE_FOUNDRY_PROJECT string = resources.outputs.foundryProjectName
+output AZURE_AI_MODEL_DEPLOYMENT_NAME string = modelDeploymentName
+output STORAGE_BLOB_ENDPOINT string = resources.outputs.blobEndpoint
+output STORAGE_TABLE_ENDPOINT string = resources.outputs.tableEndpoint
+output DOCUMENT_INTELLIGENCE_ENDPOINT string = resources.outputs.documentIntelligenceEndpoint
 output INVOICE_CONTAINER string = resources.outputs.invoiceContainer
 output INVOICE_TABLE string = resources.outputs.invoiceTable
-output AZURE_AI_ENDPOINT string = resources.outputs.aiEndpoint
-output AZURE_FOUNDRY_PROJECT string = resources.outputs.foundryProjectName
-output AZURE_MODEL_DEPLOYMENT string = modelDeploymentName
+output INVOICE_AGENT_NAME string = agentName

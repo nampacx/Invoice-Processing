@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/InvoiceProcessing.Agent/InvoiceProcessing.Agent.csproj" />
     <Project Path="src/InvoiceProcessing.Functions/InvoiceProcessing.Functions.csproj" />
   </Folder>
   <Folder Name="/tests/">
