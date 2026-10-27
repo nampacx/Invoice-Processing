@@ -1,5 +1,5 @@
 using Azure.AI.OpenAI;
-using Azure.Identity;
+using Azure.Core;
 using InvoiceProcessing.Models;
 using InvoiceProcessing.Tools;
 using Microsoft.Agents.AI;
@@ -38,6 +38,7 @@ public sealed class InvoiceAgent
     public InvoiceAgent(
         IOptions<InvoiceOptions> options,
         InvoiceDocumentTool documentTool,
+        TokenCredential credential,
         ILoggerFactory loggerFactory,
         ILogger<InvoiceAgent> logger)
     {
@@ -45,8 +46,7 @@ public sealed class InvoiceAgent
         _logger = logger;
 
         var o = options.Value;
-        // Managed identity in Azure, developer credentials locally.
-        var chatClient = new AzureOpenAIClient(new Uri(o.OpenAIEndpoint), new DefaultAzureCredential())
+        var chatClient = new AzureOpenAIClient(new Uri(o.OpenAIEndpoint), credential)
             .GetChatClient(o.ModelDeployment)
             .AsIChatClient()
             .AsBuilder()

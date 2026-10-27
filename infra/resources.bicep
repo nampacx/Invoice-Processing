@@ -22,6 +22,7 @@ var roles = {
   storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
   cognitiveServicesOpenAIUser: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
   cognitiveServicesUser: 'a97b65f3-24c7-4388-baec-2e87135dc908'
+  monitoringMetricsPublisher: '3913510d-42f4-4e42-8a64-420c390055eb'
 }
 
 // ---------------------------------------------------------------- Monitoring
@@ -43,6 +44,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: logs.id
+    DisableLocalAuth: true // telemetry must be sent with Entra ID (managed identity)
   }
 }
 
@@ -89,6 +91,21 @@ resource ai 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
     customSubDomainName: 'ai-${token}'
     publicNetworkAccess: 'Enabled'
     disableLocalAuth: true
+    allowProjectManagement: true
+  }
+  identity: { type: 'SystemAssigned' }
+}
+
+// Foundry project: gives the model deployment and Document Intelligence a home in the Foundry portal.
+resource project 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
+  parent: ai
+  name: 'invoice-processing'
+  location: aiLocation
+  tags: tags
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    displayName: 'Invoice Processing'
+    description: 'Invoice extraction agent'
   }
 }
 
@@ -148,6 +165,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'Invoice__ModelDeployment', value: model.name }
         { name: 'Invoice__TableName', value: invoiceTableName }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+        { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'Authorization=AAD' }
       ]
     }
   }
@@ -192,6 +210,16 @@ resource functionDocIntelRole 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
+resource functionMetricsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appInsights.id, functionApp.id, roles.monitoringMetricsPublisher)
+  scope: appInsights
+  properties: {
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.monitoringMetricsPublisher)
+  }
+}
+
 // Deploying user: upload invoices and inspect the table.
 resource userBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
   name: guid(storage.id, principalId, roles.storageBlobDataContributor)
@@ -218,3 +246,4 @@ output storageAccountName string = storage.name
 output invoiceContainer string = invoiceContainerName
 output invoiceTable string = invoiceTableName
 output aiEndpoint string = ai.properties.endpoint
+output foundryProjectName string = project.name

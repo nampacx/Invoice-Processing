@@ -67,4 +67,5 @@ output AZURE_STORAGE_ACCOUNT string = resources.outputs.storageAccountName
 output INVOICE_CONTAINER string = resources.outputs.invoiceContainer
 output INVOICE_TABLE string = resources.outputs.invoiceTable
 output AZURE_AI_ENDPOINT string = resources.outputs.aiEndpoint
+output AZURE_FOUNDRY_PROJECT string = resources.outputs.foundryProjectName
 output AZURE_MODEL_DEPLOYMENT string = modelDeploymentName

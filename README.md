@@ -45,8 +45,8 @@ Copy `src/InvoiceProcessing.Functions/local.settings.sample.json` to `local.sett
 | `InvoiceStorage` | Connection string (local/Azurite) **or** identity-based: `InvoiceStorage__blobServiceUri`, `InvoiceStorage__queueServiceUri`, `InvoiceStorage__tableServiceUri` |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights |
 
-Auth is `DefaultAzureCredential` (managed identity in Azure). Grant the function's identity:
-`Cognitive Services OpenAI User` (Foundry), `Cognitive Services User` (Document Intelligence), `Storage Blob Data Owner`, `Storage Queue Data Contributor`, `Storage Table Data Contributor` (storage).
+Auth is keyless. In Azure every client (model, Document Intelligence, storage, Application Insights) uses the function app's **system-assigned managed identity** (`AzureCredentials.Create()`); locally it falls back to your `az login` / `azd auth login` via `DefaultAzureCredential`. The Bicep template grants the identity:
+`Cognitive Services OpenAI User` (model), `Cognitive Services User` (Document Intelligence), `Storage Blob Data Owner`, `Storage Queue Data Contributor`, `Storage Table Data Contributor` (storage), `Monitoring Metrics Publisher` (Application Insights, which has local auth disabled). Storage shared-key access and Foundry API keys are disabled.
 
 ## Deploy with azd
 Infrastructure is in `infra/` (Bicep, subscription scope) and wired up through `azure.yaml`.
